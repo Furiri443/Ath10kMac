@@ -25,7 +25,7 @@ defaults:
 
 jobs:
   build:
-    name: Build x86_64 kext
+    name: Build x86_64 kext and app
     runs-on: macos-15-intel
     timeout-minutes: 30
     env:
@@ -98,17 +98,21 @@ jobs:
               output.write(f"artifact_name=Ath10kMac-{package_version}-x86_64\n")
           PY
 
-      - name: Build and check kext symbols
+      - name: Build kext, build app, and check outputs
         run: |
           set -euo pipefail
           make clean
           make -j"$(sysctl -n hw.logicalcpu)" kext
+          make app
           plutil -lint build/out/Ath10kMac.kext/Contents/Info.plist
           xcrun lipo build/out/Ath10kMac.kext/Contents/MacOS/Ath10kMac -verify_arch x86_64
           test "$(xcrun lipo build/out/Ath10kMac.kext/Contents/MacOS/Ath10kMac -archs)" = "x86_64"
           xcrun dwarfdump --uuid build/out/Ath10kMac.kext/Contents/MacOS/Ath10kMac
+          test -d "build/Ath10k Connectivity.app"
+          test -x "build/Ath10k Connectivity.app/Contents/MacOS/Ath10kConnectivity"
+          codesign --verify --deep --strict "build/Ath10k Connectivity.app"
 
-      - name: Package kext, notices, and checksum
+      - name: Package kext, app, notices, and checksum
         env:
           PACKAGE_VERSION: ${{ steps.metadata.outputs.package_version }}
         run: |
@@ -117,6 +121,7 @@ jobs:
           archive="Ath10kMac-${PACKAGE_VERSION}-x86_64.zip"
           mkdir -p "$stage/Licenses" build/dist
           ditto build/out/Ath10kMac.kext "$stage/Ath10kMac.kext"
+          ditto "build/Ath10k Connectivity.app" "$stage/Ath10k Connectivity.app"
           chmod 755 "$stage/Ath10kMac.kext/Contents/MacOS/Ath10kMac"
 
           if [[ -f README.md ]]; then
@@ -142,7 +147,7 @@ jobs:
 
           {
             printf '### Ath10kMac %s\n\n' "$PACKAGE_VERSION"
-            printf 'Build and symbol checks completed for x86_64.\n\n'
+            printf 'Build and symbol checks completed for x86_64 kext and app.\n\n'
             printf 'Package: \x60%s\x60\n\n' "$archive"
             cat "build/dist/$archive.sha256"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -198,4 +203,3 @@ jobs:
             --title "Ath10kMac ${PACKAGE_VERSION}" \
             --generate-notes \
             "${options[@]}"
-
